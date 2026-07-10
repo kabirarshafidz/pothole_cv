@@ -1,13 +1,34 @@
 import argparse
 
+import yaml
 from ultralytics import YOLO
 
-from utils import RUNS_ROOT, get_device
+from build_country_lists import build_lists
+from utils import CLASS_NAMES, RUNS_ROOT, SPLITS_ROOT, get_device
+
+
+def make_dataset_yaml(country: str) -> str:
+    train_list = SPLITS_ROOT / f"{country}_train.txt"
+    val_list = SPLITS_ROOT / f"{country}_val.txt"
+    if not train_list.exists() or not val_list.exists():
+        build_lists()
+
+    yaml_path = SPLITS_ROOT / f"{country}.yaml"
+    yaml_path.write_text(
+        yaml.safe_dump(
+            {
+                "train": str(train_list),
+                "val": str(val_list),
+                "names": {i: name for i, name in enumerate(CLASS_NAMES)},
+            }
+        )
+    )
+    return str(yaml_path)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Train YOLOv8 on a dataset yaml")
-    parser.add_argument("--data", default="data/dataset_japan.yaml")
+    parser = argparse.ArgumentParser(description="Train YOLOv8 on one country's subset of RDD_SPLIT")
+    parser.add_argument("--country", default="Japan")
     parser.add_argument("--model", default="yolov8s.pt")
     parser.add_argument("--imgsz", type=int, default=640)
     parser.add_argument("--batch", type=int, default=16)
@@ -16,9 +37,10 @@ def main() -> None:
     parser.add_argument("--name", default="japan_baseline")
     args = parser.parse_args()
 
+    data_yaml = make_dataset_yaml(args.country)
     model = YOLO(args.model)
     model.train(
-        data=args.data,
+        data=data_yaml,
         imgsz=args.imgsz,
         batch=args.batch,
         epochs=args.epochs,

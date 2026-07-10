@@ -33,29 +33,27 @@ hardcoding device or paths in scripts.
 ## Project structure
 
 ```
-pothole/
+pothole_cv/
 ├── CLAUDE.md
 ├── data/
-│   ├── Japan/
-│   │   ├── images/train  val  test
-│   │   ├── labels/train  val  test       # YOLO format (.txt)
-│   │   └── annotations/xmls              # original RDD2022 Pascal VOC XML
-│   ├── India/
-│   ├── Czech/
-│   ├── Norway/
-│   ├── United_States/
-│   ├── China/
-│   └── dataset_japan.yaml               # active training config
+│   └── RDD_SPLIT/                       # Kaggle "RDD 2022" dataset, as-is
+│       ├── train/images  labels         # YOLO format (.txt), all 6 countries mixed
+│       ├── val/images    labels
+│       └── test/images   labels
 ├── scripts/
-│   ├── convert_annotations.py           # XML → YOLO label conversion
-│   ├── split_dataset.py                 # train/val/test split (70/15/15)
+│   ├── utils.py                         # device + path resolution, country_of()
+│   ├── build_country_lists.py           # filters RDD_SPLIT by country prefix into
+│   │                                     #   outputs/splits/<country>_<split>.txt
 │   ├── train.py                         # YOLOv8 training entry point
 │   ├── evaluate.py                      # multi-country generalization eval
 │   ├── severity.py                      # severity scoring (v1 area, v2 depth)
 │   └── visualize.py                     # annotated output images + route map
+├── notebooks/
+│   └── kaggle_pipeline.ipynb            # actual run environment — GPU + real data
 ├── runs/                                # YOLOv8 auto-saves checkpoints here
 │   └── japan_baseline/weights/best.pt  # primary model
 └── outputs/
+    ├── splits/                          # per-country image list .txt files + yamls
     ├── generalization_results.csv       # 6-country × 4-class mAP table
     └── severity_comparison.csv          # area vs depth severity scores
 ```
@@ -63,7 +61,13 @@ pothole/
 ## Dataset
 
 **RDD2022** — 47k road images, 6 countries, 4 damage classes.
-Download: https://zenodo.org/record/7504400
+On Kaggle as "RDD 2022" → `RDD_SPLIT/{train,val,test}/{images,labels}`. Unlike the raw
+Zenodo release, this copy is **already YOLO-formatted and already split 70/15/15**, with
+all 6 countries mixed together within each split. Filenames carry a country prefix
+(`Japan_000123.jpg`, `India_000045.jpg`, ...) — that prefix is the only way to recover
+per-country subsets, via `country_of()` in `scripts/utils.py`.
+Zenodo original (XML, per-country folders): https://zenodo.org/record/7504400 — not what
+this pipeline consumes, but useful for cross-referencing label quality/class definitions.
 
 Damage classes (YOLO class index order):
 
@@ -72,37 +76,40 @@ Damage classes (YOLO class index order):
 - 2 = D20 Alligator crack
 - 3 = D40 Pothole
 
+This order is an **assumption about the Kaggle dataset's pre-conversion**, not something
+we control — verify it (e.g. inspect a few label files, check D40/pothole AP isn't near
+zero) before trusting per-class AP or severity results. `notebooks/kaggle_pipeline.ipynb`
+has a sanity-check cell for this in the data prep section.
+
 Label quality by country (best → worst): Japan > Czech > Norway > USA > China > India.
 Always train on Japan first. India is used for generalization stress-testing only.
 
-dataset.yaml must have `names` in exactly this order — any mismatch silently breaks
+dataset yamls must have `names` in exactly this order — any mismatch silently breaks
 per-class AP and severity scoring.
 
 ## Key scripts
 
-### convert_annotations.py
+### build_country_lists.py
 
-Converts Pascal VOC XML (RDD2022 default) to YOLO .txt format.
-Input: `data/<Country>/annotations/xmls/*.xml`
-Output: `data/<Country>/labels/*.txt`
-Assumes image size 600×600 — verify before running on non-Japan subsets.
-
-### split_dataset.py
-
-Random 70/15/15 split. Seed fixed at 42 for reproducibility.
-Run once per country. Do not re-run after training has started.
+RDD_SPLIT is pre-converted and pre-split — there's no XML-to-YOLO conversion step and no
+train/val/test split to run. This script only filters: for each of train/val/test, it
+groups image paths by country prefix and writes `outputs/splits/<country>_<split>.txt`
+(one path per line). `train.py` and `evaluate.py` call it automatically if the list files
+don't exist yet, so it rarely needs to be run directly.
 
 ### train.py
 
-Trains YOLOv8s on Japan by default. Key params:
+Trains YOLOv8s on one country (Japan by default) by pointing Ultralytics' `train`/`val`
+dataset yaml fields at that country's list files from `build_country_lists.py`. Key params:
 
-- `imgsz=640`, `batch=16` (reduce to 8 if MPS memory pressure)
+- `imgsz=640`, `batch=16` (reduce to 8 under memory pressure)
 - `epochs=50`, `patience=10` (early stopping)
-- `device="mps"`
+- `device` — via `get_device()`, never hardcoded
 
 ### evaluate.py
 
-Runs `model.val()` on each country's test split using the Japan-trained model.
+For each country, builds a test-only yaml from that country's `outputs/splits/<country>_test.txt`
+and runs `model.val()` against it using the Japan-trained model.
 Outputs `generalization_results.csv` — this is the core research result table.
 
 ### severity.py
@@ -144,24 +151,26 @@ Run in this order:
 
 ## Common mistakes to avoid
 
-**Label index mismatch** — if D40 (pothole) AP is near zero, the class index in
-dataset.yaml is wrong. Must be: D00=0, D10=1, D20=2, D40=3.
+**Label index mismatch** — if D40 (pothole) AP is near zero, the class index the Kaggle
+copy's pre-conversion used doesn't match `CLASS_NAMES` (D00=0, D10=1, D20=2, D40=3).
+This is an assumption about someone else's conversion, not something we generate — verify
+against actual label files rather than assuming it's correct.
 
-**Coordinate normalization** — YOLO format requires coordinates in [0,1].
-RDD2022 XML uses absolute pixel coordinates. Divide by image width/height in
-convert_annotations.py. Easy to silently get wrong.
+**Country prefix drift** — `country_of()` matches filenames against the exact `COUNTRIES`
+list in `utils.py`. If RDD_SPLIT filenames use different casing/spelling (e.g. `USA_` vs
+`United_States_`), images silently get dropped from every per-country list with no error.
 
-**Data leakage** — run split_dataset.py once, then freeze the split. Never re-split
-after seeing validation results.
+**Data leakage** — RDD_SPLIT's train/val/test split is already frozen; don't reshuffle or
+recombine it. `build_country_lists.py` only filters within each split, it never moves
+images across train/val/test.
 
-**MPS fallback** — set `PYTORCH_ENABLE_MPS_FALLBACK=1` before any training or
-inference. Without it, unsupported ops crash instead of falling back to CPU.
+**MPS fallback** — set `PYTORCH_ENABLE_MPS_FALLBACK=1` before any local training or
+inference. Without it, unsupported ops crash instead of falling back to CPU. Not relevant
+on Kaggle (CUDA).
 
 **Overfitting Japan** — mAP@50 above 0.80 on Japan test set almost certainly
-means train/test overlap. Re-check split.
-
-**Re-running convert_annotations.py** — safe to re-run but will overwrite labels.
-If you have manually corrected any labels, back them up first.
+means train/test overlap. Re-check that `build_country_lists.py` isn't double-counting
+an image across splits.
 
 ## Research narrative
 
@@ -181,7 +190,7 @@ supports claim 1. severity_comparison.csv (with qualitative examples) supports c
 
 | Week | Deliverable                                                                     |
 | ---- | ------------------------------------------------------------------------------- |
-| 1    | Environment set up, Japan data converted and split, first training run complete |
+| 1    | Environment set up, Japan country lists built from RDD_SPLIT, first training run complete |
 | 2    | Japan baseline mAP reported, confusion matrix analyzed, per-class AP table      |
 | 3    | 6-country generalization table complete — this is the core research result      |
 | 4    | Severity v1 (area-based) implemented, demo on sample images                     |
@@ -198,10 +207,10 @@ Final demo should show:
 - Sidebar: per-detection table (class, confidence, severity score, method used)
 - Optional: GPS route map with damage hotspots if metadata available
 
-Run demo:
+Run demo (on Kaggle, where the data and trained weights actually are):
 
 ```bash
-python scripts/severity.py data/Japan/images/test/sample.jpg --mode depth
+python scripts/severity.py data/RDD_SPLIT/test/images/Japan_000001.jpg --mode depth
 ```
 
 ## External resources
