@@ -1,0 +1,20 @@
+name: pothole
+channels:
+  - pytorch
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+      - torch
+      - torchvision
+      - ultralytics
+      - transformers
+      - opencv-python
+      - albumentations
+      - pandas
+      - matplotlib
+      - numpy
+      - pyyaml
+      - tqdm
+      - pillow

@@ -1,0 +1,4 @@
+# Kaggle GPU notebooks already bundle torch+cuda, transformers, opencv, pandas,
+# matplotlib, numpy, pyyaml, tqdm, pillow. Only install what's missing:
+ultralytics
+albumentations
