@@ -38,6 +38,13 @@ def country_of(filename: str) -> str | None:
     return match.group(1) if match else None
 
 
+def truncate_list(list_path: Path, n: int, suffix: str) -> Path:
+    lines = list_path.read_text().splitlines()[:n]
+    out_path = list_path.with_name(f"{list_path.stem}_{suffix}.txt")
+    out_path.write_text("\n".join(lines))
+    return out_path
+
+
 def get_device() -> str:
     if torch.cuda.is_available():
         return "cuda"

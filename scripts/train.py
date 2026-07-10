@@ -4,16 +4,20 @@ import yaml
 from ultralytics import YOLO
 
 from build_country_lists import build_lists
-from utils import CLASS_NAMES, RUNS_ROOT, SPLITS_ROOT, get_device
+from utils import CLASS_NAMES, RUNS_ROOT, SPLITS_ROOT, get_device, truncate_list
 
 
-def make_dataset_yaml(country: str) -> str:
+def make_dataset_yaml(country: str, limit: int | None = None) -> str:
     train_list = SPLITS_ROOT / f"{country}_train.txt"
     val_list = SPLITS_ROOT / f"{country}_val.txt"
     if not train_list.exists() or not val_list.exists():
         build_lists()
 
-    yaml_path = SPLITS_ROOT / f"{country}.yaml"
+    if limit:
+        train_list = truncate_list(train_list, limit, suffix="dryrun")
+        val_list = truncate_list(val_list, max(1, limit // 4), suffix="dryrun")
+
+    yaml_path = SPLITS_ROOT / f"{country}{'_dryrun' if limit else ''}.yaml"
     yaml_path.write_text(
         yaml.safe_dump(
             {

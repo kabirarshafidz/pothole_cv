@@ -5,18 +5,24 @@ import yaml
 from ultralytics import YOLO
 
 from build_country_lists import build_lists
-from utils import CLASS_NAMES, COUNTRIES, OUTPUTS_ROOT, SPLITS_ROOT, get_device
+from utils import CLASS_NAMES, COUNTRIES, OUTPUTS_ROOT, SPLITS_ROOT, get_device, truncate_list
 
 
-def make_test_yaml(country: str) -> str:
+def make_test_yaml(country: str, limit: int | None = None) -> str:
     test_list = SPLITS_ROOT / f"{country}_test.txt"
     if not test_list.exists():
         build_lists()
 
-    yaml_path = SPLITS_ROOT / f"{country}_test.yaml"
+    if limit:
+        test_list = truncate_list(test_list, limit, suffix="dryrun")
+
+    yaml_path = SPLITS_ROOT / f"{country}_test{'_dryrun' if limit else ''}.yaml"
     yaml_path.write_text(
         yaml.safe_dump(
             {
+                # Ultralytics' check_det_dataset requires 'train' in every data yaml, even
+                # for a val()-only call — unused here, just needs to point somewhere valid.
+                "train": str(test_list),
                 "val": str(test_list),
                 "names": {i: name for i, name in enumerate(CLASS_NAMES)},
             }
