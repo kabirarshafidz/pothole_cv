@@ -16,8 +16,13 @@ _COUNTRY_PREFIX = re.compile(r"^(" + "|".join(COUNTRIES) + r")_")
 def _find_data_root() -> Path:
     if not ON_KAGGLE:
         return REPO_ROOT / "data" / "RDD_SPLIT"
-    matches = sorted(Path("/kaggle/input").glob("*/RDD_SPLIT"))
-    return matches[0] if matches else Path("/kaggle/input/rdd-2022/RDD_SPLIT")
+    matches = sorted(p for p in Path("/kaggle/input").rglob("RDD_SPLIT") if p.is_dir())
+    if not matches:
+        raise FileNotFoundError(
+            "No RDD_SPLIT folder found under /kaggle/input — attach the RDD2022 dataset. "
+            f"Contents of /kaggle/input: {list(Path('/kaggle/input').iterdir())}"
+        )
+    return matches[0]
 
 
 # Pre-converted YOLO labels, pre-split 70/15/15 with all 6 countries mixed together —
