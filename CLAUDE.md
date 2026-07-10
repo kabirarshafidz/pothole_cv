@@ -60,7 +60,10 @@ pothole_cv/
 
 ## Dataset
 
-**RDD2022** — 47k road images, 6 countries, 4 damage classes.
+**RDD2022** — 47k road images, 6 countries. The RDD2022 paper describes 4 damage classes,
+but the specific Kaggle copy this pipeline uses ("aliabdelmenam/rdd-2022") is pre-converted
+with **5 classes** — it splits out a 5th "other corruption" class alongside Pothole. Don't
+assume the paper's 4-class scheme applies; verify against this copy's labels directly.
 On Kaggle as "RDD 2022" → `RDD_SPLIT/{train,val,test}/{images,labels}`. Unlike the raw
 Zenodo release, this copy is **already YOLO-formatted and already split 70/15/15**, with
 all 6 countries mixed together within each split. Filenames carry a country prefix
@@ -69,17 +72,21 @@ per-country subsets, via `country_of()` in `scripts/utils.py`.
 Zenodo original (XML, per-country folders): https://zenodo.org/record/7504400 — not what
 this pipeline consumes, but useful for cross-referencing label quality/class definitions.
 
-Damage classes (YOLO class index order):
+Damage classes (YOLO class index order, this Kaggle copy):
 
 - 0 = D00 Longitudinal crack
 - 1 = D10 Transverse crack
 - 2 = D20 Alligator crack
-- 3 = D40 Pothole
+- 3 = D44 Other corruption
+- 4 = D40 Pothole
 
 This order is an **assumption about the Kaggle dataset's pre-conversion**, not something
 we control — verify it (e.g. inspect a few label files, check D40/pothole AP isn't near
 zero) before trusting per-class AP or severity results. `notebooks/kaggle_pipeline.ipynb`
-has a sanity-check cell for this in the data prep section.
+has a sanity-check cell for this in the data prep section. Declaring fewer classes than the
+labels actually use doesn't error — Ultralytics silently drops any label whose class index
+falls outside the declared range as "corrupt", which is what happened here: an `nc=4` yaml
+against 5-class labels silently discarded every Pothole (class 4) annotation.
 
 Label quality by country (best → worst): Japan > Czech > Norway > USA > China > India.
 Always train on Japan first. India is used for generalization stress-testing only.
@@ -151,10 +158,13 @@ Run in this order:
 
 ## Common mistakes to avoid
 
-**Label index mismatch** — if D40 (pothole) AP is near zero, the class index the Kaggle
-copy's pre-conversion used doesn't match `CLASS_NAMES` (D00=0, D10=1, D20=2, D40=3).
-This is an assumption about someone else's conversion, not something we generate — verify
-against actual label files rather than assuming it's correct.
+**Label index mismatch / undeclared classes** — if D40 (pothole) AP is near zero, or
+Ultralytics logs `Label class N exceeds dataset class count` and drops images as "corrupt",
+the class index the Kaggle copy's pre-conversion used doesn't match `CLASS_NAMES`
+(D00=0, D10=1, D20=2, D44=3, D40=4). This already happened once: `CLASS_NAMES` only listed
+4 names against 5-class labels, so `nc=4` caused every Pothole (class 4) label to be
+silently dropped. This is an assumption about someone else's conversion, not something we
+generate — verify against actual label files rather than assuming it's correct.
 
 **Country prefix drift** — `country_of()` matches filenames against the exact `COUNTRIES`
 list in `utils.py`. If RDD_SPLIT filenames use different casing/spelling (e.g. `USA_` vs

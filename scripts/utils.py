@@ -7,7 +7,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 ON_KAGGLE = Path("/kaggle/input").exists()
 
 COUNTRIES = ["Japan", "India", "Czech", "Norway", "United_States", "China"]
-CLASS_NAMES = ["D00", "D10", "D20", "D40"]  # longitudinal, transverse, alligator, pothole
+# The Kaggle "aliabdelmenam/rdd-2022" copy of RDD_SPLIT has 5 classes, not the 4 in the
+# RDD2022 paper — verified against its labels, which use class id 4 for Pothole. Declaring
+# only 4 names here (nc=4) made Ultralytics silently drop every class-4 label as "corrupt",
+# i.e. every pothole box in the dataset was being discarded during training.
+CLASS_NAMES = ["D00", "D10", "D20", "D44", "D40"]  # longitudinal, transverse, alligator, other corruption, pothole
 
 # RDD2022 filenames carry a country prefix, e.g. "Japan_000123.jpg".
 _COUNTRY_PREFIX = re.compile(r"^(" + "|".join(COUNTRIES) + r")_")
