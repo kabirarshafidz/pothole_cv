@@ -55,3 +55,36 @@ def get_device() -> str:
     if torch.backends.mps.is_available():
         return "mps"
     return "cpu"
+
+
+def verify_label_classes(data_root: Path, class_names: list[str], split: str = "train", sample: int = 200) -> None:
+    """Fail fast if label class ids don't match class_names — catches the exact
+    silent-drop bug from ed65d4a (nc=4 declared against 5-class labels) before
+    a training run burns GPU time on it."""
+    label_dir = data_root / split / "labels"
+    label_files = sorted(label_dir.glob("*.txt"))[:sample]
+    if not label_files:
+        raise FileNotFoundError(f"No label files found in {label_dir} — check DATA_ROOT ({data_root})")
+
+    max_id = len(class_names) - 1
+    seen_ids: set[int] = set()
+    for label_file in label_files:
+        for line in label_file.read_text().splitlines():
+            if not line.strip():
+                continue
+            class_id = int(line.split()[0])
+            seen_ids.add(class_id)
+            if class_id > max_id:
+                raise ValueError(
+                    f"{label_file} has class id {class_id}, but CLASS_NAMES only declares "
+                    f"{len(class_names)} classes (0-{max_id}): {class_names}. Labels would be "
+                    f"silently dropped as 'corrupt' by Ultralytics — see ed65d4a."
+                )
+
+    pothole_id = class_names.index("D40") if "D40" in class_names else None
+    if pothole_id is not None and pothole_id not in seen_ids:
+        raise ValueError(
+            f"No labels with class id {pothole_id} (D40/Pothole) found in the first "
+            f"{len(label_files)} {split} label files — verify CLASS_NAMES order still "
+            f"matches this Kaggle copy's pre-conversion."
+        )
